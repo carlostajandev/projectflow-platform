@@ -14,8 +14,16 @@ A full-stack project management application built with **NestJS**, **Next.js**, 
 | **Auth** | JWT + bcryptjs |
 | **Validation** | class-validator (BE) · Zod + React Hook Form (FE) |
 | **Testing** | Jest + @nestjs/testing (unit tests) |
+| **Security** | ThrottlerModule — rate limiting on all routes |
 | **Package Manager** | pnpm |
 | **Infra** | Docker Compose, multi-stage Dockerfiles |
+| **CI** | GitHub Actions — test + build on every push |
+
+---
+
+## CI Status
+
+![CI](https://github.com/<your-username>/projectflow-platform/actions/workflows/ci.yml/badge.svg)
 
 ---
 
@@ -33,7 +41,7 @@ git clone <repo-url>
 cd projectflow-platform
 
 # 2. Copy environment variables
-cp .env.example .env.development
+cp .env.example .env
 
 # 3. Start all services
 docker compose up
@@ -94,6 +102,71 @@ All users share the same password: **`password`**
 
 ---
 
+## System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Docker Network                           │
+│                                                                 │
+│   ┌───────────────┐     ┌───────────────┐     ┌─────────────┐  │
+│   │   Next.js     │────▶│   NestJS      │────▶│ PostgreSQL  │  │
+│   │   :3000       │     │   :3001       │     │   :5432     │  │
+│   │               │     │               │     │             │  │
+│   │  App Router   │     │  REST API     │     │  TypeORM    │  │
+│   │  Tailwind CSS │     │  JWT Auth     │     │  Migrations │  │
+│   │  Zustand      │     │  Swagger      │     │             │  │
+│   └───────────────┘     └───────────────┘     └─────────────┘  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+Request flow:
+Browser → Next.js (SSR/CSR) → Axios → NestJS API → TypeORM → PostgreSQL
+                                         │
+                                    JWT validation
+                                    Rate limiting
+                                    Response wrapper
+```
+
+---
+
+## Data Model
+
+```
+┌──────────────────────┐         ┌──────────────────────┐
+│         User         │         │       Project         │
+├──────────────────────┤         ├──────────────────────┤
+│ id          UUID PK  │◀────┐   │ id          UUID PK  │
+│ name        string   │     │   │ name        string   │
+│ email       string   │     └───│ creatorId   UUID FK  │
+│ passwordHash string  │         │ description text     │
+│ createdAt   datetime │         │ createdAt   datetime │
+│ updatedAt   datetime │         │ updatedAt   datetime │
+└──────────────────────┘         └──────────┬───────────┘
+         │                                  │
+         │ 1                                │ 1
+         │                                  │
+         ▼ N                                ▼ N
+┌──────────────────────┐         ┌──────────────────────┐
+│       Comment        │         │         Task         │
+├──────────────────────┤         ├──────────────────────┤
+│ id          UUID PK  │         │ id          UUID PK  │
+│ content     text     │         │ title       string   │
+│ taskId      UUID FK  │◀────────│ description text     │
+│ authorId    UUID FK  │         │ status      enum     │
+│ createdAt   datetime │         │ priority    enum     │
+│ updatedAt   datetime │         │ dueDate     date     │
+└──────────────────────┘         │ projectId   UUID FK  │
+                                 │ assigneeId  UUID FK  │
+                                 │ createdAt   datetime │
+                                 │ updatedAt   datetime │
+                                 └──────────────────────┘
+
+TaskStatus:   TODO | IN_PROGRESS | IN_REVIEW | DONE
+TaskPriority: LOW  | MEDIUM      | HIGH      | CRITICAL
+```
+
+---
+
 ## Testing
 
 Unit tests are written with **Jest** and **@nestjs/testing**. All service methods are tested in isolation using mocked repositories and dependencies — no database required.
@@ -125,6 +198,10 @@ pnpm test:watch
 
 ```
 projectflow-platform/
+├── .github/
+│   └── workflows/
+│       └── ci.yml              # CI pipeline (test + build on push)
+├── .editorconfig               # Consistent coding style across editors
 ├── docker-compose.yml
 ├── .env.example
 ├── codemized-backend/          # NestJS API
@@ -140,7 +217,7 @@ projectflow-platform/
 │       │   ├── filters/        # Global HTTP exception filter
 │       │   ├── interceptors/   # Global response wrapper interceptor
 │       │   ├── exceptions/     # Custom business exceptions
-│       │   └── dto/            # Shared DTOs (ApiResponseDto)
+│       │   └── dto/            # Shared DTOs (ApiResponse, Pagination)
 │       ├── config/             # TypeORM / environment config
 │       └── database/
 │           └── seed.sql        # Sample data for local development
@@ -168,6 +245,8 @@ projectflow-platform/
 - **DTOs with validation**: `class-validator` decorators on all incoming payloads
 - **`@CurrentUser()` decorator**: Clean access to the authenticated user in any controller
 - **Ownership guards**: Users can only modify their own projects/tasks
+- **Rate limiting**: Global throttle via `ThrottlerModule` — stricter limits on auth endpoints
+- **Pagination**: `GET /projects` and `GET /tasks` support `?page=1&limit=10`
 - **Swagger/OpenAPI**: Full API documentation at `/api/docs`
 
 ### Frontend Design Principles
@@ -185,17 +264,17 @@ projectflow-platform/
 ## API Endpoints
 
 ### Auth
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/api/v1/auth/register` | Register a new user |
-| POST | `/api/v1/auth/login` | Login and receive JWT |
-| GET | `/api/v1/auth/me` | Get current user 🔒 |
+| Method | Endpoint | Description | Rate limit |
+|---|---|---|---|
+| POST | `/api/v1/auth/register` | Register a new user | 3 / min |
+| POST | `/api/v1/auth/login` | Login and receive JWT | 5 / min |
+| GET | `/api/v1/auth/me` | Get current user 🔒 | global |
 
 ### Projects
 | Method | Endpoint | Description |
 |---|---|---|
 | POST | `/api/v1/projects` | Create a project 🔒 |
-| GET | `/api/v1/projects` | List my projects 🔒 |
+| GET | `/api/v1/projects?page=1&limit=10` | List my projects 🔒 |
 | GET | `/api/v1/projects/:id` | Get project by ID 🔒 |
 | PUT | `/api/v1/projects/:id` | Update project 🔒 |
 | DELETE | `/api/v1/projects/:id` | Delete project 🔒 |
@@ -204,9 +283,9 @@ projectflow-platform/
 | Method | Endpoint | Description |
 |---|---|---|
 | POST | `/api/v1/projects/:projectId/tasks` | Create task 🔒 |
-| GET | `/api/v1/projects/:projectId/tasks` | List tasks by project 🔒 |
+| GET | `/api/v1/projects/:projectId/tasks?page=1&limit=10` | List tasks 🔒 |
 | PUT | `/api/v1/projects/:projectId/tasks/:id` | Update task 🔒 |
-| PATCH | `/api/v1/projects/:projectId/tasks/:id/assign` | Assign task to user 🔒 |
+| PATCH | `/api/v1/projects/:projectId/tasks/:id/assign` | Assign task 🔒 |
 | DELETE | `/api/v1/projects/:projectId/tasks/:id` | Delete task 🔒 |
 
 ### Comments
@@ -217,18 +296,6 @@ projectflow-platform/
 | DELETE | `/api/v1/tasks/:taskId/comments/:id` | Delete comment 🔒 |
 
 🔒 = Requires `Authorization: Bearer <token>`
-
----
-
-## Data Model
-
-```
-User (1) ─────────── (N) Project
-User (1) ─────────── (N) Task (assignee)
-User (1) ─────────── (N) Comment (author)
-Project (1) ──────── (N) Task
-Task (1) ─────────── (N) Comment
-```
 
 ---
 

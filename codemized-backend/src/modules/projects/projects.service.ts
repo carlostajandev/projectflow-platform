@@ -5,6 +5,7 @@ import {
   ProjectNotFoundException,
   ProjectOwnershipException,
 } from '../../common/exceptions/business.exceptions';
+import { PaginationDto, PaginatedResult } from '../../common/dto/pagination.dto';
 import { User } from '../users/entities/user.entity';
 import { CreateProjectDto, UpdateProjectDto } from './dto/project.dto';
 import { Project } from './entities/project.entity';
@@ -25,17 +26,34 @@ export class ProjectsService {
     return this.projectRepository.save(project);
   }
 
-  async findAllByUser(userId: string): Promise<Project[]> {
-    return this.projectRepository.find({
-      where: { creatorId: userId },
-      order: { createdAt: 'DESC' },
+  async findAllByUser(
+    userId: string,
+    pagination: PaginationDto,
+  ): Promise<PaginatedResult<Project>> {
+    const [data, total] = await this.projectRepository.findAndCount({
+      where:     { creatorId: userId },
+      order:     { createdAt: 'DESC' },
       relations: ['creator'],
+      skip:      pagination.skip,
+      take:      pagination.limit,
     });
+
+    return {
+      data,
+      meta: {
+        total,
+        page:        pagination.page,
+        limit:       pagination.limit,
+        totalPages:  Math.ceil(total / pagination.limit),
+        hasNextPage: pagination.page < Math.ceil(total / pagination.limit),
+        hasPrevPage: pagination.page > 1,
+      },
+    };
   }
 
   async findById(id: string): Promise<Project> {
     const project = await this.projectRepository.findOne({
-      where: { id },
+      where:     { id },
       relations: ['creator'],
     });
     if (!project) throw new ProjectNotFoundException(id);
