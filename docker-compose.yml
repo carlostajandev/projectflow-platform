@@ -1,74 +1,97 @@
-version: '3.9'
+# ─────────────────────────────────────────────────────────────────────────────
+# Docker Compose — ProjectFlow Platform
+#
+# Services:
+#   postgres  → PostgreSQL 16 (with healthcheck)
+#   backend   → NestJS API     (waits for postgres healthy)
+#   frontend  → Next.js 14     (waits for backend healthy)
+#
+# Usage:
+#   docker compose up           → start all services
+#   docker compose up postgres  → start only the database (local dev)
+#   docker compose down -v      → stop and remove volumes
+# ─────────────────────────────────────────────────────────────────────────────
 
 services:
+  # ── Database ───────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: codemized_db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-codemized}
+      POSTGRES_USER:     ${POSTGRES_USER:-codemized}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-codemized_pass}
-      POSTGRES_DB: ${POSTGRES_DB:-codemized_db}
+      POSTGRES_DB:       ${POSTGRES_DB:-codemized_db}
     ports:
-      - '5433:5432'
+      - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-codemized}']
+      test:     ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-codemized}']
       interval: 10s
-      timeout: 5s
-      retries: 5
+      timeout:  5s
+      retries:  5
     networks:
       - codemized_network
 
+  # ── Backend ────────────────────────────────────────────────────────────────
   backend:
     build:
-      context: ./backend
+      context:    ./codemized-backend
       dockerfile: Dockerfile
     container_name: codemized_backend
     restart: unless-stopped
     depends_on:
       postgres:
-        condition: service_healthy
+        condition: service_healthy   # waits for DB to be ready
     environment:
-      NODE_ENV: production
-      PORT: 3001
-      DATABASE_HOST: postgres
-      DATABASE_PORT: 5432
-      DATABASE_USER: ${POSTGRES_USER:-codemized}
+      NODE_ENV:          production
+      PORT:              3001
+      # Database — uses internal Docker hostname (not localhost)
+      DATABASE_HOST:     postgres
+      DATABASE_PORT:     5432
+      DATABASE_USER:     ${POSTGRES_USER:-codemized}
       DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-codemized_pass}
-      DATABASE_NAME: ${POSTGRES_DB:-codemized_db}
-      JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_change_in_production}
-      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      DATABASE_NAME:     ${POSTGRES_DB:-codemized_db}
+      # Auth
+      JWT_SECRET:        ${JWT_SECRET:-super_secret_jwt_key_change_in_production}
+      JWT_EXPIRES_IN:    ${JWT_EXPIRES_IN:-7d}
     ports:
       - '3001:3001'
     networks:
       - codemized_network
     healthcheck:
-      test: ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1']
+      test:     ['CMD-SHELL', 'wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1']
       interval: 15s
-      timeout: 10s
-      retries: 5
+      timeout:  10s
+      retries:  5
 
+  # ── Frontend ───────────────────────────────────────────────────────────────
   frontend:
     build:
-      context: ./frontend
+      context:    ./codemized-frontend
       dockerfile: Dockerfile
     container_name: codemized_frontend
     restart: unless-stopped
     depends_on:
       backend:
-        condition: service_healthy
+        condition: service_healthy   # waits for API to be ready
     environment:
+      # Public env vars are baked at build time in Next.js —
+      # for runtime injection use a server-side config endpoint instead
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
     ports:
       - '3000:3000'
     networks:
       - codemized_network
 
+# ── Volumes ───────────────────────────────────────────────────────────────────
 volumes:
   postgres_data:
+    # Named volume — persists DB data across container restarts
 
+# ── Networks ──────────────────────────────────────────────────────────────────
 networks:
   codemized_network:
     driver: bridge
+    # All services communicate over this isolated bridge network

@@ -11,8 +11,10 @@ A full-stack project management application built with **NestJS**, **Next.js**, 
 | **Frontend** | Next.js 14 (App Router), TypeScript, Tailwind CSS |
 | **Backend** | NestJS, TypeORM, Passport JWT |
 | **Database** | PostgreSQL 16 |
-| **Auth** | JWT + bcrypt |
+| **Auth** | JWT + bcryptjs |
 | **Validation** | class-validator (BE) · Zod + React Hook Form (FE) |
+| **Testing** | Jest + @nestjs/testing (unit tests) |
+| **Package Manager** | pnpm |
 | **Infra** | Docker Compose, multi-stage Dockerfiles |
 
 ---
@@ -21,16 +23,17 @@ A full-stack project management application built with **NestJS**, **Next.js**, 
 
 ### Prerequisites
 - [Docker](https://www.docker.com/) and Docker Compose v2+
+- [pnpm](https://pnpm.io/) v8+
 
 ### Run the application
 
 ```bash
 # 1. Clone the repo
 git clone <repo-url>
-cd codemized-challenge
+cd projectflow-platform
 
 # 2. Copy environment variables
-cp .env.example .env
+cp .env.example .env.development
 
 # 3. Start all services
 docker compose up
@@ -44,6 +47,23 @@ docker compose up
 
 > The backend waits for PostgreSQL to be healthy before starting. No manual DB setup needed — TypeORM handles schema creation automatically on first run.
 
+### Run locally (without Docker)
+
+```bash
+# Start only the database
+docker compose up postgres -d
+
+# Backend
+cd codemized-backend
+pnpm install
+pnpm start:dev
+
+# Frontend (in a separate terminal)
+cd codemized-frontend
+pnpm install
+pnpm dev
+```
+
 ---
 
 ## Seed Data
@@ -55,7 +75,7 @@ To populate the database with sample users, projects, tasks and comments, run th
 docker exec -i codemized_db psql -U codemized -d codemized_db < codemized-backend/src/database/seed.sql
 ```
 
-Or from inside the `codemized-backend/` folder using the npm script:
+Or from inside `codemized-backend/` using the pnpm script:
 
 ```bash
 pnpm seed
@@ -74,40 +94,69 @@ All users share the same password: **`password`**
 
 ---
 
+## Testing
+
+Unit tests are written with **Jest** and **@nestjs/testing**. All service methods are tested in isolation using mocked repositories and dependencies — no database required.
+
+```bash
+cd codemized-backend
+
+# Run all tests
+pnpm test
+
+# Run with coverage report
+pnpm test:cov
+
+# Watch mode
+pnpm test:watch
+```
+
+### Test coverage
+
+| File | Tests | What's covered |
+|---|---|---|
+| `auth.service.spec.ts` | 5 | register, login, duplicate email, wrong password, user not found |
+| `projects.service.spec.ts` | 6 | create, findAll, findById, ownership check, update, delete |
+| `tasks.service.spec.ts` | 7 | create, findByProject, findById, update, assign, assign not found, delete |
+
+---
+
 ## Architecture
 
 ```
-codemized-challenge/
-├── backend/                   # NestJS API
+projectflow-platform/
+├── docker-compose.yml
+├── .env.example
+├── codemized-backend/          # NestJS API
 │   └── src/
 │       ├── modules/
-│       │   ├── auth/          # JWT auth, guards, strategies, decorators
-│       │   ├── users/         # User entity + CRUD
-│       │   ├── projects/      # Project management
-│       │   ├── tasks/         # Task management with status/priority
-│       │   ├── comments/      # Task comments
-│       │   └── health/        # Health check endpoint
+│       │   ├── auth/           # JWT auth, guards, strategies, decorators
+│       │   ├── users/          # User entity + CRUD
+│       │   ├── projects/       # Project management
+│       │   ├── tasks/          # Task management with status/priority
+│       │   ├── comments/       # Task comments
+│       │   └── health/         # Health check endpoint
 │       ├── common/
-│       │   ├── filters/       # Global HTTP exception filter
-│       │   ├── interceptors/  # Global response wrapper interceptor
-│       │   ├── exceptions/    # Custom business exceptions
-│       │   └── dto/           # Shared DTOs (ApiResponseDto)
-│       ├── config/            # TypeORM / environment config
+│       │   ├── filters/        # Global HTTP exception filter
+│       │   ├── interceptors/   # Global response wrapper interceptor
+│       │   ├── exceptions/     # Custom business exceptions
+│       │   └── dto/            # Shared DTOs (ApiResponseDto)
+│       ├── config/             # TypeORM / environment config
 │       └── database/
-│           └── seed.sql       # Sample data for local development
+│           └── seed.sql        # Sample data for local development
 │
-└── frontend/                  # Next.js App Router
+└── codemized-frontend/         # Next.js App Router
     └── src/
         ├── app/
-        │   ├── auth/          # Login & Register pages
-        │   └── dashboard/     # Protected dashboard with Kanban board
-        ├── components/        # Reusable UI components
-        ├── hooks/             # Custom hooks (useProjects, useTasks)
+        │   ├── auth/           # Login & Register pages
+        │   └── dashboard/      # Protected dashboard with Kanban board
+        ├── components/         # Reusable UI components
+        ├── hooks/              # Custom hooks (useProjects, useTasks)
         ├── lib/
-        │   ├── api/           # Axios client + service layer
-        │   ├── store/         # Zustand auth store
-        │   └── validations/   # Zod schemas
-        └── types/             # Shared TypeScript types
+        │   ├── api/            # Axios client + service layer
+        │   ├── store/          # Zustand auth store
+        │   └── validations/    # Zod schemas
+        └── types/              # Shared TypeScript types
 ```
 
 ### Backend Design Principles
