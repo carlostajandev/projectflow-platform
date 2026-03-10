@@ -5,6 +5,7 @@ import {
   TaskNotFoundException,
   UserNotFoundException,
 } from '../../common/exceptions/business.exceptions';
+import { PaginationDto, PaginatedResult } from '../../common/dto/pagination.dto';
 import { User } from '../users/entities/user.entity';
 import { ProjectsService } from '../projects/projects.service';
 import { AssignTaskDto, CreateTaskDto, UpdateTaskDto } from './dto/task.dto';
@@ -24,28 +25,42 @@ export class TasksService {
     // Validates project exists and user owns it
     await this.projectsService.findByIdAndOwner(projectId, currentUser.id);
 
-    const task = this.taskRepository.create({
-      ...dto,
-      projectId,
-    });
-
+    const task = this.taskRepository.create({ ...dto, projectId });
     return this.taskRepository.save(task);
   }
 
-  async findByProject(projectId: string, currentUser: User): Promise<Task[]> {
+  async findByProject(
+    projectId: string,
+    currentUser: User,
+    pagination: PaginationDto,
+  ): Promise<PaginatedResult<Task>> {
     // Validates access to the project
     await this.projectsService.findByIdAndOwner(projectId, currentUser.id);
 
-    return this.taskRepository.find({
-      where: { projectId },
+    const [data, total] = await this.taskRepository.findAndCount({
+      where:     { projectId },
       relations: ['assignee'],
-      order: { createdAt: 'DESC' },
+      order:     { createdAt: 'DESC' },
+      skip:      pagination.skip,
+      take:      pagination.limit,
     });
+
+    return {
+      data,
+      meta: {
+        total,
+        page:        pagination.page,
+        limit:       pagination.limit,
+        totalPages:  Math.ceil(total / pagination.limit),
+        hasNextPage: pagination.page < Math.ceil(total / pagination.limit),
+        hasPrevPage: pagination.page > 1,
+      },
+    };
   }
 
   async findById(id: string): Promise<Task> {
     const task = await this.taskRepository.findOne({
-      where: { id },
+      where:     { id },
       relations: ['assignee', 'project'],
     });
     if (!task) throw new TaskNotFoundException(id);
@@ -55,7 +70,6 @@ export class TasksService {
   async update(id: string, dto: UpdateTaskDto, currentUser: User): Promise<Task> {
     const task = await this.findById(id);
     await this.projectsService.findByIdAndOwner(task.projectId, currentUser.id);
-
     Object.assign(task, dto);
     return this.taskRepository.save(task);
   }
@@ -68,7 +82,7 @@ export class TasksService {
     if (!assignee) throw new UserNotFoundException(dto.assigneeId);
 
     task.assigneeId = dto.assigneeId;
-    task.assignee = assignee;
+    task.assignee   = assignee;
     return this.taskRepository.save(task);
   }
 

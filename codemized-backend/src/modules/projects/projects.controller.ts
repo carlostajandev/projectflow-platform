@@ -8,59 +8,70 @@ import {
   Param,
   Post,
   Put,
+  Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { PaginationDto } from '../../common/dto/pagination.dto';
 import { User } from '../users/entities/user.entity';
 import { CreateProjectDto, UpdateProjectDto } from './dto/project.dto';
 import { ProjectsService } from './projects.service';
 
 @ApiTags('Projects')
 @UseGuards(JwtAuthGuard)
-@ApiBearerAuth('JWT')
 @Controller('projects')
 export class ProjectsController {
   constructor(private readonly projectsService: ProjectsService) {}
 
+  // ── Create ────────────────────────────────────────────────────────────────
   @Post()
-  @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a new project' })
-  async create(@Body() dto: CreateProjectDto, @CurrentUser() user: User) {
-    const data = await this.projectsService.create(dto, user);
-    return { data, message: 'Project created successfully' };
+  create(
+    @Body() dto: CreateProjectDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.projectsService.create(dto, user);
   }
 
+  // ── List ─────────────────────────────────────────────────────────────────
+  // Supports pagination: GET /projects?page=1&limit=10
   @Get()
   @ApiOperation({ summary: 'List all projects for the authenticated user' })
-  async findAll(@CurrentUser() user: User) {
-    const data = await this.projectsService.findAllByUser(user.id);
-    return { data, message: 'Projects retrieved successfully' };
+  findAll(
+    @Query() pagination: PaginationDto,
+    @CurrentUser() user: User,
+  ) {
+    return this.projectsService.findAllByUser(user.id, pagination);
   }
 
+  // ── Get by ID ─────────────────────────────────────────────────────────────
   @Get(':id')
   @ApiOperation({ summary: 'Get a project by ID' })
-  async findOne(@Param('id') id: string, @CurrentUser() user: User) {
-    const data = await this.projectsService.findByIdAndOwner(id, user.id);
-    return { data, message: 'Project retrieved successfully' };
+  findOne(@Param('id') id: string) {
+    return this.projectsService.findById(id);
   }
 
+  // ── Update ────────────────────────────────────────────────────────────────
   @Put(':id')
-  @ApiOperation({ summary: 'Update a project' })
-  async update(
+  @ApiOperation({ summary: 'Update a project (owner only)' })
+  update(
     @Param('id') id: string,
     @Body() dto: UpdateProjectDto,
     @CurrentUser() user: User,
   ) {
-    const data = await this.projectsService.update(id, dto, user.id);
-    return { data, message: 'Project updated successfully' };
+    return this.projectsService.update(id, dto, user.id);
   }
 
+  // ── Delete ────────────────────────────────────────────────────────────────
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Delete a project' })
-  async remove(@Param('id') id: string, @CurrentUser() user: User) {
-    await this.projectsService.remove(id, user.id);
+  @ApiOperation({ summary: 'Delete a project (owner only)' })
+  remove(
+    @Param('id') id: string,
+    @CurrentUser() user: User,
+  ) {
+    return this.projectsService.remove(id, user.id);
   }
 }
